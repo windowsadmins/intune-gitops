@@ -1,0 +1,6 @@
+# Outside the usage roots: the client reads it, but it maps to no group.
+name: CoreApps
+managed_installs:
+- Firefox
+managed_profiles:
+- NeverAssignedFromHere

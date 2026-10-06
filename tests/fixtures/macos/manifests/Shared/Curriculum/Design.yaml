@@ -1,0 +1,9 @@
+name: Design
+included_manifests:
+- Shared
+managed_uninstalls:
+- SharedSoftwareUpdate
+conditional_items:
+- condition: NOT machine_type == "laptop"
+  managed_profiles:
+  - DesktopEnergyPrefs

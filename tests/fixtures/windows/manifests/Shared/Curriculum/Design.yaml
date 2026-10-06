@@ -1,0 +1,9 @@
+name: Design
+included_manifests:
+- Shared
+managed_uninstalls:
+- SharedWindowsUpdateRing
+conditional_items:
+- condition: machine_model CONTAINS "Dell"
+  managed_profiles:
+  - DellCommandPrefs

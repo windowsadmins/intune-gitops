@@ -1,0 +1,16 @@
+name: IT
+managed_installs:
+- Visual Studio Code
+managed_profiles:
+- AdminTerminalPrefs
+managed_apps:
+- Remote Desktop
+managed_scripts:
+- RepairMunki
+conditional_items:
+- condition: machine_type == "laptop"
+  managed_profiles:
+  - LaptopPowerPrefs
+- condition: os_vers_major == 15
+  managed_scripts:
+  - SequoiaCleanup

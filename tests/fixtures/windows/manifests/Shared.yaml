@@ -1,0 +1,6 @@
+name: Shared
+managed_profiles:
+- DisableCopilot
+- SharedWindowsUpdateRing
+managed_uninstalls:
+- OldSecurityAgent
