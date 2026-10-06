@@ -34,3 +34,16 @@ jobs:
               exit 1
             fi
           done
+      - name: PowerShell parses
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) { $errors | ForEach-Object { Write-Error "$($_.Extent.File):$($_.Extent.StartLineNumber) $($_.Message)" }; $failed = $true }
+          }
+          if ($failed) { exit 1 }
+      - name: Audit suite imports
+        working-directory: tools/audit
+        run: python -m intune_audit --help

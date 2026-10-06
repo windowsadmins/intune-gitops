@@ -8,6 +8,9 @@ The Intune half of a GitOps-managed fleet, for **both Windows and macOS**.
   Entra groups. A condition becomes an assignment filter.
 - **enrollment/** turns an inventory projection into the Entra group ladder
   those assignments target.
+- **tools/** holds standalone tenant tools: a read-only audit, a profile
+  reinstall, Autopilot unlock, an on-demand managed-run trigger and a Settings
+  Catalog lookup. See [tools/README.md](tools/README.md).
 
 This is the shared engine behind two sample repos, which keep their own
 manifests, profiles and client consumers and check this repo out at a pinned
@@ -208,6 +211,7 @@ The identity needs these Microsoft Graph application permissions:
 | `engine/lib/` | Manifest walk, assignment guards, assignment filters |
 | `engine/stages/` | Lint, plan, apply |
 | `enrollment/` | Group ladder, Graph client, membership guards, triggers. See its README. |
+| `tools/` | Standalone tenant tools. See its README. |
 | `tests/` | In-memory Graph, sample and broken trees per platform. No network. |
 
 ## Tests
