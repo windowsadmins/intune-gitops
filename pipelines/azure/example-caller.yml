@@ -1,0 +1,37 @@
+# A client repo's pipeline that calls the template. Copy it into the client
+# repo, set the names, and pin `ref` to a released tag.
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - intune/manifests/**
+      - intune/profiles/**
+
+parameters:
+  - name: whatIf
+    displayName: 'Plan only: log every write instead of making it'
+    type: boolean
+    default: true
+
+resources:
+  repositories:
+    - repository: intune_gitops
+      type: github
+      endpoint: github-public
+      name: windowsadmins/intune-gitops
+      ref: refs/tags/v0.1.0
+
+stages:
+  - template: pipelines/azure/intune-mgmt.yml@intune_gitops
+    parameters:
+      platform: windows
+      manifestsPath: intune/manifests
+      serviceConnection: intune-graph
+      whatIf: ${{ parameters.whatIf }}
+      validationSteps:
+        - script: python3 intune/checks/catalog_waterfall.py
+          workingDirectory: $(Pipeline.Workspace)/s/self
+          displayName: 'Catalog declarations are cumulative'

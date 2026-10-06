@@ -47,3 +47,40 @@ jobs:
       - name: Audit suite imports
         working-directory: tools/audit
         run: python -m intune_audit --help
+      - name: Pipeline YAML and WDAC XML parse
+        run: |
+          python - <<'PY'
+          import glob, xml.dom.minidom, yaml
+          for f in glob.glob("pipelines/**/*.yml", recursive=True):
+              yaml.safe_load(open(f))
+          for f in glob.glob("policies/**/*.xml", recursive=True):
+              xml.dom.minidom.parse(f)
+          PY
+
+  action:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [windows, macos]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Lint through the composite action
+        uses: ./pipelines/github
+        with:
+          stage: lint
+          platform: ${{ matrix.platform }}
+          manifests: tests/fixtures/${{ matrix.platform }}/manifests
+      - name: Plan through the composite action
+        uses: ./pipelines/github
+        with:
+          stage: plan
+          platform: ${{ matrix.platform }}
+          manifests: tests/fixtures/${{ matrix.platform }}/manifests
+      - name: Test through the composite action
+        uses: ./pipelines/github
+        with:
+          stage: test
+          platform: ${{ matrix.platform }}

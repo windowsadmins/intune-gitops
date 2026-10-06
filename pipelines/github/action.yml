@@ -1,0 +1,63 @@
+name: intune-gitops
+description: >
+  Lint, plan or apply a manifest tree against Intune with the intune-gitops
+  engine. The engine comes from this action's own checkout, so pinning the
+  action to a tag pins the engine.
+
+inputs:
+  stage:
+    description: lint, plan, apply or test
+    required: true
+  platform:
+    description: windows (Cimian) or macos (Munki)
+    required: true
+  manifests:
+    description: Path to the manifest tree in the caller's workspace
+    required: false
+    default: manifests
+  what-if:
+    description: For apply, log every write instead of making it
+    required: false
+    default: 'true'
+  graph-token:
+    description: For apply, a Microsoft Graph access token
+    required: false
+    default: ''
+  min-desired-assignments:
+    required: false
+    default: '3'
+  protected-profiles:
+    description: Profiles another pipeline owns (optional path)
+    required: false
+    default: ''
+  laptop-models-file:
+    description: macOS laptops Intune reports by identifier (optional path)
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Dependencies
+      shell: bash
+      run: python3 -m pip install --quiet pyyaml requests
+    - name: Run ${{ inputs.stage }}
+      shell: bash
+      env:
+        ENGINE: ${{ github.action_path }}/../..
+        STAGE: ${{ inputs.stage }}
+        PLATFORM: ${{ inputs.platform }}
+        MANIFESTS: ${{ inputs.manifests }}
+        GRAPH_TOKEN: ${{ inputs.graph-token }}
+        WHATIF: ${{ inputs.what-if }}
+        MIN_DESIRED_ASSIGNMENTS: ${{ inputs.min-desired-assignments }}
+        PROTECTED_PROFILES: ${{ inputs.protected-profiles || 'none' }}
+        INTUNE_LAPTOP_MODELS_FILE: ${{ inputs.laptop-models-file }}
+      run: |
+        case "$STAGE" in
+          lint)  python3 "$ENGINE/engine/stages/lint_conditions.py" --platform "$PLATFORM" "$MANIFESTS" ;;
+          plan)  python3 "$ENGINE/engine/stages/plan_assignments.py" --platform "$PLATFORM" "$MANIFESTS" ;;
+          apply) python3 "$ENGINE/engine/stages/apply_assignments.py" --platform "$PLATFORM" "$MANIFESTS" ;;
+          test)  cd "$ENGINE" && python3 -m unittest discover -s tests ;;
+          *)     echo "unknown stage: $STAGE" >&2; exit 2 ;;
+        esac

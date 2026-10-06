@@ -11,6 +11,11 @@ The Intune half of a GitOps-managed fleet, for **both Windows and macOS**.
 - **tools/** holds standalone tenant tools: a read-only audit, a profile
   reinstall, Autopilot unlock, an on-demand managed-run trigger and a Settings
   Catalog lookup. See [tools/README.md](tools/README.md).
+- **pipelines/** holds an Azure Pipelines stages template and a GitHub
+  composite action that client repos call, pinned to a tag. See
+  [pipelines/README.md](pipelines/README.md).
+- **policies/wdac/** holds App Control for Business samples that trust what
+  your managed installer writes. See [policies/wdac/README.md](policies/wdac/README.md).
 
 This is the shared engine behind two sample repos, which keep their own
 manifests, profiles and client consumers and check this repo out at a pinned
@@ -215,6 +220,8 @@ The identity needs these Microsoft Graph application permissions:
 | `engine/stages/` | Lint, plan, apply |
 | `enrollment/` | Group ladder, Graph client, membership guards, triggers. See its README. |
 | `tools/` | Standalone tenant tools. See its README. |
+| `pipelines/` | Azure Pipelines template and GitHub composite action. See its README. |
+| `policies/wdac/` | App Control base and supplemental samples. See its README. |
 | `tests/` | In-memory Graph, sample and broken trees per platform. No network. |
 
 ## Tests
