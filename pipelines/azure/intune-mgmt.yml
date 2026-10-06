@@ -1,0 +1,163 @@
+# Manifest tree -> Intune, as an Azure Pipelines stages template.
+#
+# A client repo (cimian-gitops, munki-gitops) declares this repo as a resource
+# pinned to a tag and calls the template; see pipelines/README.md. The template
+# checks out both repos side by side:
+#
+#   $(Pipeline.Workspace)/s/self           the calling repo (manifests)
+#   $(Pipeline.Workspace)/s/intune-gitops  this repo (engine)
+#
+# The lint stage has dependsOn: [] and gates everything, because the failure it
+# catches -- a condition that cannot be translated, skipped in silence -- is
+# invisible once the run is underway.
+
+parameters:
+  - name: platform
+    type: string
+    values: [windows, macos]
+  - name: manifestsPath
+    displayName: 'Manifest tree, relative to the calling repo'
+    type: string
+  - name: serviceConnection
+    displayName: 'Azure service connection whose identity holds the Graph permissions'
+    type: string
+  - name: engineRepository
+    displayName: 'Resource alias the caller gave this repo'
+    type: string
+    default: intune_gitops
+  - name: whatIf
+    displayName: 'Plan only: log every write instead of making it'
+    type: boolean
+    default: true
+  - name: validationSteps
+    displayName: 'Platform checks the caller runs in the test stage'
+    type: stepList
+    default: []
+  - name: minDesiredAssignments
+    type: string
+    default: '3'
+  - name: protectedProfiles
+    displayName: 'Profiles another pipeline owns (path in the calling repo, optional)'
+    type: string
+    default: ''
+  - name: laptopModelsFile
+    displayName: 'macOS: laptops Intune reports by identifier (path in the calling repo, optional)'
+    type: string
+    default: ''
+  - name: vmImage
+    type: string
+    default: ubuntu-latest
+
+stages:
+  - stage: lint
+    displayName: 'Lint manifest conditions'
+    dependsOn: []
+    jobs:
+      - job: lint
+        pool:
+          vmImage: ${{ parameters.vmImage }}
+        steps:
+          - checkout: self
+            path: s/self
+            fetchDepth: 1
+          - checkout: ${{ parameters.engineRepository }}
+            path: s/intune-gitops
+            fetchDepth: 1
+          - script: pip install pyyaml
+            displayName: 'Dependencies'
+          - script: >
+              python3 intune-gitops/engine/stages/lint_conditions.py
+              --platform ${{ parameters.platform }}
+              'self/${{ parameters.manifestsPath }}'
+            workingDirectory: $(Pipeline.Workspace)/s
+            displayName: 'Every condition must translate'
+            env:
+              INTUNE_LAPTOP_MODELS_FILE: ${{ iif(eq(parameters.laptopModelsFile, ''), '', format('self/{0}', parameters.laptopModelsFile)) }}
+
+  - stage: test
+    displayName: 'Test'
+    dependsOn: lint
+    jobs:
+      - job: test
+        pool:
+          vmImage: ${{ parameters.vmImage }}
+        steps:
+          - checkout: self
+            path: s/self
+            fetchDepth: 1
+          - checkout: ${{ parameters.engineRepository }}
+            path: s/intune-gitops
+            fetchDepth: 1
+          - script: pip install pyyaml requests
+            displayName: 'Dependencies'
+          - script: python3 -m unittest discover -s tests
+            workingDirectory: $(Pipeline.Workspace)/s/intune-gitops
+            displayName: 'Engine and group ladder guards'
+          - ${{ each step in parameters.validationSteps }}:
+            - ${{ step }}
+
+  - stage: plan
+    displayName: 'Plan'
+    dependsOn: test
+    jobs:
+      - job: plan
+        pool:
+          vmImage: ${{ parameters.vmImage }}
+        steps:
+          - checkout: self
+            path: s/self
+            fetchDepth: 1
+          - checkout: ${{ parameters.engineRepository }}
+            path: s/intune-gitops
+            fetchDepth: 1
+          - script: pip install pyyaml
+            displayName: 'Dependencies'
+          - script: >
+              python3 intune-gitops/engine/stages/plan_assignments.py
+              --platform ${{ parameters.platform }}
+              'self/${{ parameters.manifestsPath }}'
+            workingDirectory: $(Pipeline.Workspace)/s
+            displayName: 'Assignments this tree implies'
+            env:
+              MIN_DESIRED_ASSIGNMENTS: ${{ parameters.minDesiredAssignments }}
+              INTUNE_LAPTOP_MODELS_FILE: ${{ iif(eq(parameters.laptopModelsFile, ''), '', format('self/{0}', parameters.laptopModelsFile)) }}
+
+  - stage: apply
+    displayName: ${{ iif(parameters.whatIf, 'Apply (whatIf)', 'Apply') }}
+    dependsOn: plan
+    jobs:
+      - job: apply
+        pool:
+          vmImage: ${{ parameters.vmImage }}
+        steps:
+          - checkout: self
+            path: s/self
+            fetchDepth: 1
+          - checkout: ${{ parameters.engineRepository }}
+            path: s/intune-gitops
+            fetchDepth: 1
+          - script: pip install pyyaml requests
+            displayName: 'Dependencies'
+          - task: AzureCLI@2
+            displayName: 'Acquire Graph token'
+            inputs:
+              azureSubscription: ${{ parameters.serviceConnection }}
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                TOKEN=$(az account get-access-token \
+                  --resource https://graph.microsoft.com \
+                  --query accessToken -o tsv)
+                echo "##vso[task.setvariable variable=GRAPH_TOKEN;issecret=true]$TOKEN"
+          - script: >
+              python3 intune-gitops/engine/stages/apply_assignments.py
+              --platform ${{ parameters.platform }}
+              'self/${{ parameters.manifestsPath }}'
+            workingDirectory: $(Pipeline.Workspace)/s
+            displayName: 'Write assignments'
+            env:
+              GRAPH_TOKEN: $(GRAPH_TOKEN)
+              WHATIF: ${{ lower(parameters.whatIf) }}
+              MIN_DESIRED_ASSIGNMENTS: ${{ parameters.minDesiredAssignments }}
+              PROTECTED_PROFILES: ${{ iif(eq(parameters.protectedProfiles, ''), 'none', format('self/{0}', parameters.protectedProfiles)) }}
+              INTUNE_LAPTOP_MODELS_FILE: ${{ iif(eq(parameters.laptopModelsFile, ''), '', format('self/{0}', parameters.laptopModelsFile)) }}

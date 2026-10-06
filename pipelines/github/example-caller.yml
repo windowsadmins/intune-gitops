@@ -1,0 +1,78 @@
+# A client repo's workflow that calls the composite action. Copy it into the
+# client repo's .github/workflows/, and pin the action to a released tag.
+name: intune-mgmt
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'intune/manifests/**'
+      - 'intune/profiles/**'
+  workflow_dispatch:
+    inputs:
+      whatIf:
+        description: 'Plan only'
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.0
+        with:
+          stage: lint
+          platform: windows
+          manifests: intune/manifests
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.0
+        with:
+          stage: test
+          platform: windows
+      - name: Catalog declarations are cumulative
+        run: python3 intune/checks/catalog_waterfall.py
+
+  plan:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.0
+        with:
+          stage: plan
+          platform: windows
+          manifests: intune/manifests
+
+  apply:
+    needs: plan
+    runs-on: ubuntu-latest
+    environment: intune
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - id: token
+        run: |
+          token=$(az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv)
+          echo "::add-mask::$token"
+          echo "graph=$token" >> "$GITHUB_OUTPUT"
+      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.0
+        with:
+          stage: apply
+          platform: windows
+          manifests: intune/manifests
+          graph-token: ${{ steps.token.outputs.graph }}
+          what-if: ${{ github.event_name == 'workflow_dispatch' && inputs.whatIf || 'false' }}
