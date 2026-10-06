@@ -200,7 +200,9 @@ export GRAPH_TOKEN="$(az account get-access-token --resource https://graph.micro
 
 In a pipeline, use a workload identity (an Azure DevOps service connection or
 GitHub OIDC federated credential) and the same `az account get-access-token`
-call. Neither needs a client secret.
+call. Neither needs a client secret. Use a read-only identity for planning and a separate
+write identity reachable only from the gated apply; see
+[pipelines/README.md](pipelines/README.md).
 
 The identity needs these Microsoft Graph application permissions:
 

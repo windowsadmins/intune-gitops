@@ -69,7 +69,33 @@ class Reinstall(unittest.TestCase):
         self.assertEqual(len(self.ORIGINAL), 1)
 
 
+class FakeAzRest:
+    def __init__(self):
+        self.calls = []
+
+    def request(self, method, url):
+        self.calls.append((method, url))
+        if method == "GET":
+            return {"value": [{"id": "ap-1", "serialNumber": "SERIAL001",
+                               "model": "Laptop", "enrollmentState": "enrolled"}]}
+        return {}
+
+
 class Autopilot(unittest.TestCase):
+    def test_dry_run_is_the_default_and_deletes_nothing(self):
+        graph = FakeAzRest()
+        unlocker = autopilot.AutopilotDeviceUnlocker(graph=graph)
+        result = unlocker.process_device("SERIAL001")
+        self.assertEqual(result["status"], "dry_run")
+        self.assertFalse(any(m == "DELETE" for m, _ in graph.calls))
+
+    def test_apply_deletes(self):
+        graph = FakeAzRest()
+        result = autopilot.AutopilotDeviceUnlocker(apply=True, graph=graph).process_device("SERIAL001")
+        self.assertEqual(result["status"], "success")
+        self.assertIn(("DELETE", autopilot.AUTOPILOT_BASE + "/ap-1"), graph.calls)
+
+
     def test_graph_error_is_summarised(self):
         out = 'ERROR: Bad Request({"error":{"code":"BadRequest","message":"nope"}})'
         self.assertEqual(autopilot.AzRestGraphClient._extract_error(out), "BadRequest: nope")

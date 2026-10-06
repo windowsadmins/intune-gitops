@@ -18,8 +18,11 @@ parameters:
   - name: manifestsPath
     displayName: 'Manifest tree, relative to the calling repo'
     type: string
-  - name: serviceConnection
-    displayName: 'Azure service connection whose identity holds the Graph permissions'
+  - name: readServiceConnection
+    displayName: 'Read-only Azure service connection (Graph *.Read.All) for the whatIf apply'
+    type: string
+  - name: writeServiceConnection
+    displayName: 'Azure service connection that can write to Intune; used only inside the gated apply deployment'
     type: string
   - name: engineRepository
     displayName: 'Resource alias the caller gave this repo'
@@ -135,6 +138,11 @@ stages:
   # -- and it runs only when all three hold: whatIf is false, the build is not a
   # pull request, and it is building the default branch. Anything else runs
   # the whatIf stage, which logs every write and needs no approval.
+  #
+  # The write connection is referenced only inside the gated deployment job.
+  # The whatIf stage signs in with the read-only connection, so a pull request
+  # or branch build can never mint a token that writes to the tenant. Lint,
+  # test and plan need no connection at all.
   - stage: apply_whatif
     displayName: 'Apply (whatIf)'
     dependsOn: plan
@@ -152,7 +160,7 @@ stages:
             parameters:
               platform: ${{ parameters.platform }}
               manifestsPath: ${{ parameters.manifestsPath }}
-              serviceConnection: ${{ parameters.serviceConnection }}
+              serviceConnection: ${{ parameters.readServiceConnection }}
               engineRepository: ${{ parameters.engineRepository }}
               whatIf: 'true'
               minDesiredAssignments: ${{ parameters.minDesiredAssignments }}
@@ -180,7 +188,7 @@ stages:
                   parameters:
                     platform: ${{ parameters.platform }}
                     manifestsPath: ${{ parameters.manifestsPath }}
-                    serviceConnection: ${{ parameters.serviceConnection }}
+                    serviceConnection: ${{ parameters.writeServiceConnection }}
                     engineRepository: ${{ parameters.engineRepository }}
                     whatIf: 'false'
                     minDesiredAssignments: ${{ parameters.minDesiredAssignments }}

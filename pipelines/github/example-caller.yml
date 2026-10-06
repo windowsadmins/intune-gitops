@@ -19,16 +19,18 @@ on:
         type: boolean
         default: true
 
+# Nothing at workflow level can mint an Azure token. Only the two apply jobs
+# get id-token: write, and each signs in as a different app registration whose
+# federated credential matches only that job's environment.
 permissions:
-  id-token: write
   contents: read
 
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.1
         with:
           stage: lint
           platform: windows
@@ -38,8 +40,8 @@ jobs:
     needs: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.1
         with:
           stage: test
           platform: windows
@@ -50,15 +52,15 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.1
         with:
           stage: plan
           platform: windows
           manifests: intune/manifests
 
   # A whatIf apply for pull requests, other branches and dispatches that ask
-  # for it. It needs Graph read access, but no approval.
+  # for it. It signs in as the read-only app registration and needs no approval.
   apply-whatif:
     needs: plan
     if: >-
@@ -67,19 +69,22 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.whatIf)
     runs-on: ubuntu-latest
     environment: intune-plan
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/login@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          client-id: ${{ vars.AZURE_READ_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
       - id: token
         run: |
           token=$(az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv)
           echo "::add-mask::$token"
           echo "graph=$token" >> "$GITHUB_OUTPUT"
-      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.0
+      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.1
         with:
           stage: apply
           platform: windows
@@ -89,8 +94,10 @@ jobs:
 
   # The real apply: default branch only, never a pull request, and behind the
   # intune-production environment. Give that environment required reviewers
-  # and restrict it to the default branch in the repo settings, and scope the
-  # federated credential that can write to it.
+  # and restrict it to the default branch in the repo settings. The write app
+  # registration's only federated credential has the subject
+  # repo:<owner>/<repo>:environment:intune-production, so no other job can
+  # sign in as it.
   apply:
     needs: plan
     if: >-
@@ -99,19 +106,22 @@ jobs:
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.whatIf))
     runs-on: ubuntu-latest
     environment: intune-production
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/login@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          client-id: ${{ vars.AZURE_WRITE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
       - id: token
         run: |
           token=$(az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv)
           echo "::add-mask::$token"
           echo "graph=$token" >> "$GITHUB_OUTPUT"
-      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.0
+      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.1
         with:
           stage: apply
           platform: windows

@@ -22,14 +22,15 @@ resources:
       type: github
       endpoint: github-public
       name: windowsadmins/intune-gitops
-      ref: refs/tags/v0.1.0
+      ref: refs/tags/v0.1.1
 
 stages:
   - template: pipelines/azure/intune-mgmt.yml@intune_gitops
     parameters:
       platform: windows
       manifestsPath: intune/manifests
-      serviceConnection: intune-graph
+      readServiceConnection: intune-graph-read
+      writeServiceConnection: intune-graph-write
       environment: intune-production
       whatIf: ${{ parameters.whatIf }}
       validationSteps:
