@@ -25,6 +25,13 @@ parameters:
     displayName: 'Resource alias the caller gave this repo'
     type: string
     default: intune_gitops
+  - name: environment
+    displayName: 'Azure DevOps environment the real apply deploys to; put approvals and checks on it'
+    type: string
+  - name: defaultBranch
+    displayName: 'The only branch a real apply may run from'
+    type: string
+    default: refs/heads/main
   - name: whatIf
     displayName: 'Plan only: log every write instead of making it'
     type: boolean
@@ -122,42 +129,60 @@ stages:
               MIN_DESIRED_ASSIGNMENTS: ${{ parameters.minDesiredAssignments }}
               INTUNE_LAPTOP_MODELS_FILE: ${{ iif(eq(parameters.laptopModelsFile, ''), '', format('self/{0}', parameters.laptopModelsFile)) }}
 
-  - stage: apply
-    displayName: ${{ iif(parameters.whatIf, 'Apply (whatIf)', 'Apply') }}
+  # Two apply stages, exactly one of which runs. The real one writes to the
+  # tenant, so it is a deployment job bound to an environment -- approvals and
+  # checks attach there, and Azure DevOps evaluates them before the stage starts
+  # -- and it runs only when all three hold: whatIf is false, the build is not a
+  # pull request, and it is building the default branch. Anything else runs
+  # the whatIf stage, which logs every write and needs no approval.
+  - stage: apply_whatif
+    displayName: 'Apply (whatIf)'
     dependsOn: plan
+    condition: >-
+      and(succeeded(),
+          or(eq('${{ lower(parameters.whatIf) }}', 'true'),
+             eq(variables['Build.Reason'], 'PullRequest'),
+             ne(variables['Build.SourceBranch'], '${{ parameters.defaultBranch }}')))
     jobs:
-      - job: apply
+      - job: apply_whatif
         pool:
           vmImage: ${{ parameters.vmImage }}
         steps:
-          - checkout: self
-            path: s/self
-            fetchDepth: 1
-          - checkout: ${{ parameters.engineRepository }}
-            path: s/intune-gitops
-            fetchDepth: 1
-          - script: pip install pyyaml requests
-            displayName: 'Dependencies'
-          - task: AzureCLI@2
-            displayName: 'Acquire Graph token'
-            inputs:
-              azureSubscription: ${{ parameters.serviceConnection }}
-              scriptType: bash
-              scriptLocation: inlineScript
-              inlineScript: |
-                TOKEN=$(az account get-access-token \
-                  --resource https://graph.microsoft.com \
-                  --query accessToken -o tsv)
-                echo "##vso[task.setvariable variable=GRAPH_TOKEN;issecret=true]$TOKEN"
-          - script: >
-              python3 intune-gitops/engine/stages/apply_assignments.py
-              --platform ${{ parameters.platform }}
-              'self/${{ parameters.manifestsPath }}'
-            workingDirectory: $(Pipeline.Workspace)/s
-            displayName: 'Write assignments'
-            env:
-              GRAPH_TOKEN: $(GRAPH_TOKEN)
-              WHATIF: ${{ lower(parameters.whatIf) }}
-              MIN_DESIRED_ASSIGNMENTS: ${{ parameters.minDesiredAssignments }}
-              PROTECTED_PROFILES: ${{ iif(eq(parameters.protectedProfiles, ''), 'none', format('self/{0}', parameters.protectedProfiles)) }}
-              INTUNE_LAPTOP_MODELS_FILE: ${{ iif(eq(parameters.laptopModelsFile, ''), '', format('self/{0}', parameters.laptopModelsFile)) }}
+          - template: steps/apply.yml
+            parameters:
+              platform: ${{ parameters.platform }}
+              manifestsPath: ${{ parameters.manifestsPath }}
+              serviceConnection: ${{ parameters.serviceConnection }}
+              engineRepository: ${{ parameters.engineRepository }}
+              whatIf: 'true'
+              minDesiredAssignments: ${{ parameters.minDesiredAssignments }}
+              protectedProfiles: ${{ parameters.protectedProfiles }}
+              laptopModelsFile: ${{ parameters.laptopModelsFile }}
+
+  - stage: apply
+    displayName: 'Apply'
+    dependsOn: plan
+    condition: >-
+      and(succeeded(),
+          eq('${{ lower(parameters.whatIf) }}', 'false'),
+          ne(variables['Build.Reason'], 'PullRequest'),
+          eq(variables['Build.SourceBranch'], '${{ parameters.defaultBranch }}'))
+    jobs:
+      - deployment: apply
+        environment: ${{ parameters.environment }}
+        pool:
+          vmImage: ${{ parameters.vmImage }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: steps/apply.yml
+                  parameters:
+                    platform: ${{ parameters.platform }}
+                    manifestsPath: ${{ parameters.manifestsPath }}
+                    serviceConnection: ${{ parameters.serviceConnection }}
+                    engineRepository: ${{ parameters.engineRepository }}
+                    whatIf: 'false'
+                    minDesiredAssignments: ${{ parameters.minDesiredAssignments }}
+                    protectedProfiles: ${{ parameters.protectedProfiles }}
+                    laptopModelsFile: ${{ parameters.laptopModelsFile }}

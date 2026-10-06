@@ -1,0 +1,51 @@
+# Steps shared by the whatIf and the real apply stages of intune-mgmt.yml.
+parameters:
+  - name: platform
+    type: string
+  - name: manifestsPath
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: engineRepository
+    type: string
+  - name: whatIf
+    type: string
+  - name: minDesiredAssignments
+    type: string
+  - name: protectedProfiles
+    type: string
+  - name: laptopModelsFile
+    type: string
+
+steps:
+  - checkout: self
+    path: s/self
+    fetchDepth: 1
+  - checkout: ${{ parameters.engineRepository }}
+    path: s/intune-gitops
+    fetchDepth: 1
+  - script: pip install pyyaml requests
+    displayName: 'Dependencies'
+  - task: AzureCLI@2
+    displayName: 'Acquire Graph token'
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        TOKEN=$(az account get-access-token \
+          --resource https://graph.microsoft.com \
+          --query accessToken -o tsv)
+        echo "##vso[task.setvariable variable=GRAPH_TOKEN;issecret=true]$TOKEN"
+  - script: >
+      python3 intune-gitops/engine/stages/apply_assignments.py
+      --platform ${{ parameters.platform }}
+      'self/${{ parameters.manifestsPath }}'
+    workingDirectory: $(Pipeline.Workspace)/s
+    displayName: ${{ iif(eq(parameters.whatIf, 'true'), 'Log the writes (whatIf)', 'Write assignments') }}
+    env:
+      GRAPH_TOKEN: $(GRAPH_TOKEN)
+      WHATIF: ${{ parameters.whatIf }}
+      MIN_DESIRED_ASSIGNMENTS: ${{ parameters.minDesiredAssignments }}
+      PROTECTED_PROFILES: ${{ iif(eq(parameters.protectedProfiles, ''), 'none', format('self/{0}', parameters.protectedProfiles)) }}
+      INTUNE_LAPTOP_MODELS_FILE: ${{ iif(eq(parameters.laptopModelsFile, ''), '', format('self/{0}', parameters.laptopModelsFile)) }}

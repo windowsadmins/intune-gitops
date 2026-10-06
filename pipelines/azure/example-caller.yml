@@ -30,6 +30,7 @@ stages:
       platform: windows
       manifestsPath: intune/manifests
       serviceConnection: intune-graph
+      environment: intune-production
       whatIf: ${{ parameters.whatIf }}
       validationSteps:
         - script: python3 intune/checks/catalog_waterfall.py
