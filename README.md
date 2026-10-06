@@ -135,7 +135,10 @@ models:
 
 A filtered assignment always carries the filter's id. Filters are created on
 demand, named `Cimian: <condition>` or `Munki: <condition>`, reused by name, and
-their rule is rewritten in place when the translation changes. Two blocks that
+their rule is rewritten in place when the translation changes. A filter counts as
+the pipeline's own only when its description starts with `Generated from manifest
+condition:`; a hand-made filter with the same name fails the run rather than
+being overwritten. Two blocks that
 name the same item for the same group become one filter joined with `OR`, since
 Intune takes one filter per group per assignment.
 

@@ -3,14 +3,18 @@
     pip install flask
     WEBHOOK_SECRET=... python3 app.py
 
-Send a signed CSV:
+Send a signed CSV. The signature covers "<timestamp>." followed by the body:
 
-    SIG="sha256=$(openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" -hex < out/intune.csv | awk '{print $NF}')"
-    curl -X POST -H 'Content-Type: text/csv' -H "X-Signature-256: $SIG" \
+    TS=$(date +%s)
+    SIG="sha256=$( { printf '%s.' "$TS"; cat out/intune.csv; } \
+          | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" -hex | awk '{print $NF}')"
+    curl -X POST -H 'Content-Type: text/csv' \
+         -H "X-Signature-Timestamp: $TS" -H "X-Signature-256: $SIG" \
          --data-binary @out/intune.csv http://localhost:8080/intune
 
-Requests are refused unless they are text/csv and carry a valid HMAC-SHA256
-signature; with WEBHOOK_SECRET unset every request is refused. See auth.py.
+Requests are refused unless they are text/csv, carry a timestamp within five
+minutes, and carry a valid HMAC-SHA256 signature over it and the body; with
+WEBHOOK_SECRET unset every request is refused. See auth.py.
 
 Exists to make the point that nothing in consumers/ needs a Functions host. A
 cron box, a GitHub Action, or this file are all equally valid front doors.

@@ -225,11 +225,38 @@ class Applying(unittest.TestCase):
         fake = tenant("windows")
         fake.filters.append({"id": "filter-old", "platform": "windows10AndLater",
                              "displayName": 'Cimian: os_version BEGINSWITH "10.0.26"',
-                             "rule": "(stale)", "description": ""})
+                             "rule": "(stale)",
+                             "description": "Generated from manifest condition: stale"})
         self.run_apply(WIN_TREE, "windows", fake)
         (entry,) = assign_body(fake, "configurationPolicies", "ModernOSPrefs")
         self.assertEqual(entry["target"]["deviceAndAppManagementAssignmentFilterId"], "filter-old")
         self.assertTrue(any(url.endswith("/filter-old") for url, _ in fake.patches))
+
+    def test_hand_made_filter_with_the_same_name_is_never_patched(self):
+        """Ownership is the description marker, the same rule target_filter_id
+        uses; a matching name alone is not ownership."""
+        fake = tenant("windows")
+        fake.filters.append({"id": "filter-portal", "platform": "windows10AndLater",
+                             "displayName": 'Cimian: os_version BEGINSWITH "10.0.26"',
+                             "rule": "(device.osVersion -startsWith \"10.0.2\")",
+                             "description": "made by hand in the portal"})
+        self.assertEqual(self.run_apply(WIN_TREE, "windows", fake), 1)
+        self.assertEqual(fake.patches, [])
+        portal = next(f for f in fake.filters if f["id"] == "filter-portal")
+        self.assertEqual(portal["description"], "made by hand in the portal")
+        obj = next(o for o in fake.objects["configurationPolicies"] if o["name"] == "ModernOSPrefs")
+        self.assertFalse(any(f"/{obj['id']}/assign" in url for url, _ in fake.assigns()))
+
+    def test_owned_ids_and_ensure_share_one_rule(self):
+        from lib.filters import FilterStore
+        fake = tenant("windows")
+        fake.filters += [
+            {"id": "mine", "platform": "windows10AndLater", "displayName": "Cimian: a",
+             "description": "Generated from manifest condition: a"},
+            {"id": "theirs", "platform": "windows10AndLater", "displayName": "Cimian: b",
+             "description": "portal"},
+        ]
+        self.assertEqual(FilterStore(fake, WIN).owned_ids(), {"mine"})
 
     def test_rejected_filter_never_falls_back_to_unfiltered(self):
         fake = tenant("windows")

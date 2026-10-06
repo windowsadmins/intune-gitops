@@ -9,7 +9,13 @@ deviceAndAppManagementAssignmentFilterId, or no filter fields at all.
 
 Filters are named "<prefix><normalized condition>" ("Cimian: ...", "Munki:
 ..."), reused by name, and their rule is rewritten in place when the translator
-output changes. Only filters with this pipeline's prefix are ever modified.
+output changes.
+
+Ownership is one rule, used everywhere: a filter belongs to this pipeline when
+its description starts with OWNED_MARKER, which only this module writes. A name
+alone is not enough -- anyone can create "Cimian: hostname == ..." by hand in
+the portal -- so a filter that matches by name but lacks the marker is never
+patched or reused; ensure() raises instead, and the target is not sent.
 """
 
 from __future__ import annotations
@@ -34,6 +40,17 @@ GROUP_TARGET = "#microsoft.graph.groupAssignmentTarget"
 EXCLUDE_TARGET = "#microsoft.graph.exclusionGroupAssignmentTarget"
 
 
+OWNED_MARKER = "Generated from manifest condition:"
+
+
+class FilterNotOwned(UnsupportedCondition):
+    """A filter with the name this condition needs exists, but was not made here."""
+
+
+def is_owned(item: dict) -> bool:
+    return (item.get("description") or "").startswith(OWNED_MARKER)
+
+
 class FilterStore:
     """The tenant's filters for one platform, plus a per-run condition cache."""
 
@@ -47,17 +64,14 @@ class FilterStore:
                 self.by_name[item.get("displayName")] = item
 
     def owned_ids(self) -> set[str]:
-        return {
-            f["id"]
-            for name, f in self.by_name.items()
-            if name and name.startswith(self.translator.prefix) and f.get("id")
-        }
+        return {f["id"] for f in self.by_name.values() if is_owned(f) and f.get("id")}
 
     def ensure(self, condition: str) -> str:
         """Return the filter id for a condition, creating or updating the filter.
 
         Raises UnsupportedCondition or CondParseError if it cannot be expressed,
-        and UnsupportedCondition if Intune refuses the write. In a whatIf run a
+        UnsupportedCondition if Intune refuses the write, and FilterNotOwned if a
+        filter with the needed name exists but this pipeline did not create it. In a whatIf run a
         filter that does not exist yet comes back as a placeholder id, which is
         only ever logged.
         """
@@ -68,9 +82,14 @@ class FilterStore:
         bad = forbidden_operator(rule)
         if bad:
             raise UnsupportedCondition(bad)
-        desc = f"Generated from manifest condition: {cond}"
+        desc = f"{OWNED_MARKER} {cond}"
 
         current = self.by_name.get(display)
+        if current and not is_owned(current):
+            raise FilterNotOwned(
+                f"a filter named {display!r} exists but was not created by this pipeline "
+                f"(its description lacks {OWNED_MARKER!r}); rename or delete it, or mark "
+                "it as owned, rather than letting the pipeline overwrite it")
         if current:
             if (
                 current.get("rule") != rule

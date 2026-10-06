@@ -99,15 +99,25 @@ export ENROLLMENT_CONSUMERS="cimian=consumers.cimian:converge"
 
 The generic webhook rewrites group membership on request, so it fails closed.
 Every request must be `Content-Type: text/csv`, which a browser cannot send
-cross-origin without a preflight, and must carry `X-Signature-256:
-sha256=<hex>`, an HMAC-SHA256 of the raw body keyed with `WEBHOOK_SECRET`. A
-missing or wrong signature is a 401, any other media type a 415, and with
-`WEBHOOK_SECRET` unset every request is refused with a 503. Compute the
-signature with:
+cross-origin without a preflight, and must carry two headers:
+
+- `X-Signature-Timestamp`: the current time in unix seconds. A request more
+  than five minutes from the server's clock is refused, so a captured request
+  cannot be replayed later.
+- `X-Signature-256: sha256=<hex>`: an HMAC-SHA256, keyed with `WEBHOOK_SECRET`,
+  of the timestamp, a dot, then the raw body.
+
+A missing or stale timestamp or a wrong signature is a 401, any other media type
+a 415, and with `WEBHOOK_SECRET` unset every request is refused with a 503.
+Compute the signature with:
 
 ```
-openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" -hex < out/intune.csv
+{ printf '%s.' "$TS"; cat out/intune.csv; } | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" -hex
 ```
+
+Inside the five-minute window a captured request can still be resent. That is
+harmless here because every consumer converges to the same state however often
+it runs; a consumer that applies deltas would also need a nonce store.
 
 Put the webhook behind TLS; the signature authenticates the body, it does not
 hide it.
