@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dependencies
+        run: pip install pyyaml requests flask
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Sample trees lint clean and plan
+        run: |
+          for platform in windows macos; do
+            python engine/stages/lint_conditions.py --platform "$platform" "tests/fixtures/$platform/manifests"
+            python engine/stages/plan_assignments.py --platform "$platform" "tests/fixtures/$platform/manifests"
+          done
+      - name: Broken trees fail the lint
+        run: |
+          for platform in windows macos; do
+            if python engine/stages/lint_conditions.py --platform "$platform" "tests/fixtures/$platform/broken"; then
+              echo "lint passed on the broken $platform tree" >&2
+              exit 1
+            fi
+          done

@@ -1,0 +1,6 @@
+name: Shared
+managed_profiles:
+- SharedSoftwareUpdate
+- SharedLoginWindow
+managed_uninstalls:
+- OldSecurityAgent

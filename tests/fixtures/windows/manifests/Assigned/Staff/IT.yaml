@@ -1,0 +1,16 @@
+name: IT
+managed_installs:
+- Visual Studio Code
+managed_profiles:
+- EnableRemoteDesktop
+managed_apps:
+- Windows Terminal
+managed_scripts:
+- RepairWinget
+conditional_items:
+- condition: os_version BEGINSWITH "10.0.26"
+  managed_profiles:
+  - ModernOSPrefs
+- condition: NOT hostname CONTAINS "KIOSK"
+  managed_scripts:
+  - StaffCleanup

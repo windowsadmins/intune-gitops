@@ -1,0 +1,36 @@
+# Every rule the linter enforces, one manifest. This is what a build failure
+# is supposed to look like.
+name: Shared
+managed_profiles:
+- DisableCopilot
+conditional_items:
+
+# Rule 1: no filter property for architecture.
+- condition: arch == "arm64"
+  managed_profiles:
+  - ArmPrefs
+
+# Rule 1: Windows model names carry no form factor.
+- condition: machine_type == "laptop"
+  managed_profiles:
+  - LaptopPowerPrefs
+
+# Rule 1: Intune rejects -endsWith on deviceName.
+- condition: hostname ENDSWITH "-LAB"
+  managed_profiles:
+  - LabPrefs
+
+# Rule 1: filters have no ordered comparison.
+- condition: os_version >= "10.0.26100"
+  managed_scripts:
+  - NewBuildsOnly
+
+# Rule 2: malformed.
+- condition: os_version ==
+  managed_profiles:
+  - BrokenPrefs
+
+# Rule 3: managed_apps under a condition is never read.
+- condition: os_version BEGINSWITH "10.0.26"
+  managed_apps:
+  - Company Portal

@@ -1,0 +1,35 @@
+# Every rule the linter enforces, one manifest.
+name: Shared
+managed_profiles:
+- SharedSoftwareUpdate
+conditional_items:
+
+# Rule 1: no filter property for architecture.
+- condition: arch == "arm64"
+  managed_profiles:
+  - ArmPrefs
+
+# Rule 1: filter `model` is the marketing name, never the identifier.
+- condition: machine_model == "MacBookPro16,1"
+  managed_profiles:
+  - SpecificHardwarePrefs
+
+# Rule 1: Intune rejects -endsWith on deviceName.
+- condition: hostname ENDSWITH "-LAB"
+  managed_profiles:
+  - LabPrefs
+
+# Rule 1: filters have no ordered comparison.
+- condition: os_vers_major >= 15
+  managed_scripts:
+  - NewOSOnly
+
+# Rule 2: malformed.
+- condition: os_vers_major ==
+  managed_profiles:
+  - BrokenPrefs
+
+# Rule 3: managed_apps under a condition is never read.
+- condition: machine_type == "laptop"
+  managed_apps:
+  - Company Portal

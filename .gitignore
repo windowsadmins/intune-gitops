@@ -1,0 +1,8 @@
+/.worktrees/
+__pycache__/
+*.pyc
+.venv/
+.cache/
+out/
+.DS_Store
+AUTOPILOT_UNLOCK_REPORT.md
