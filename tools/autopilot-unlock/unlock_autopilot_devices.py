@@ -7,9 +7,12 @@ releasing the MDM lock so devices can be reused or returned.
 Auth: Uses Azure CLI via `az rest`, so it acts as whoever ran `az login`. That
 identity needs DeviceManagementServiceConfig.ReadWrite.All.
 
+Dry run by default: it looks every device up and lists what it would remove.
+Pass --apply to delete.
+
 Usage:
     python3 unlock_autopilot_devices.py --serials SERIAL001 SERIAL002
-    python3 unlock_autopilot_devices.py --csv path/to/devices.csv
+    python3 unlock_autopilot_devices.py --csv path/to/devices.csv --apply
 """
 
 from __future__ import annotations
@@ -108,8 +111,9 @@ class AzRestGraphClient:
 
 
 class AutopilotDeviceUnlocker:
-    def __init__(self):
-        self.graph = AzRestGraphClient()
+    def __init__(self, apply: bool = False, graph=None):
+        self.apply = apply
+        self.graph = graph or AzRestGraphClient()
         self.results = []
 
     def find_autopilot_device_by_serial(self, serial: str) -> dict | None:
@@ -174,9 +178,12 @@ class AutopilotDeviceUnlocker:
         autopilot_id = device["id"]
         print(f"  Found: {model} (state: {state})")
         print(f"  Autopilot ID: {autopilot_id}")
-        print("  Removing from Autopilot registration...")
-
-        status, message = self.delete_autopilot_device(autopilot_id)
+        if not self.apply:
+            print("  [DRY RUN] would remove this Autopilot registration")
+            status, message = "dry_run", "Would be removed (dry run; re-run with --apply)"
+        else:
+            print("  Removing from Autopilot registration...")
+            status, message = self.delete_autopilot_device(autopilot_id)
         print(f"  {message}")
 
         return {
@@ -249,6 +256,7 @@ class AutopilotDeviceUnlocker:
                 "in_progress": "In Progress",
                 "not_found": "Not Found",
                 "error": "Failed",
+                "dry_run": "Dry run",
             }.get(r["status"], r["status"])
             lines.append(
                 f"| {r['equipment_id']} | {r['serial']} | {r['model']} "
@@ -267,9 +275,13 @@ def main():
     group.add_argument("--serials", nargs="+", metavar="SERIAL", help="One or more serial numbers")
     group.add_argument("--csv", metavar="FILE", help="CSV file with Serial# column")
     parser.add_argument("--report", default="AUTOPILOT_UNLOCK_REPORT.md", help="Output report path")
+    parser.add_argument("--apply", action="store_true",
+                        help="actually delete the registrations (default: dry run, lists only)")
     args = parser.parse_args()
 
-    unlocker = AutopilotDeviceUnlocker()
+    unlocker = AutopilotDeviceUnlocker(apply=args.apply)
+    if not args.apply:
+        print("DRY RUN: nothing will be deleted. Re-run with --apply to remove registrations.")
 
     if args.serials:
         unlocker.process_serials(args.serials)
@@ -284,7 +296,9 @@ def main():
     print(f"\n{'='*60}")
     print(f"SUMMARY")
     print(f"{'='*60}")
-    print(f"Total: {total} | Unlocked/In-Progress: {success} | Not Found: {not_found} | Failed: {failed}")
+    dry = sum(1 for r in unlocker.results if r["status"] == "dry_run")
+    print(f"Total: {total} | Unlocked/In-Progress: {success} | Would remove: {dry} "
+          f"| Not Found: {not_found} | Failed: {failed}")
 
     unlocker.generate_report(args.report)
 
