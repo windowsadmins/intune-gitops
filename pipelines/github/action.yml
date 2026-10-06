@@ -16,7 +16,9 @@ inputs:
     required: false
     default: manifests
   what-if:
-    description: For apply, log every write instead of making it
+    description: >
+      For apply, log every write instead of making it. Forced to true on a pull
+      request or any ref other than the default branch.
     required: false
     default: 'true'
   graph-token:
@@ -49,7 +51,9 @@ runs:
         PLATFORM: ${{ inputs.platform }}
         MANIFESTS: ${{ inputs.manifests }}
         GRAPH_TOKEN: ${{ inputs.graph-token }}
-        WHATIF: ${{ inputs.what-if }}
+        # Belt and braces behind the caller's environment gate: a pull request,
+        # or any ref other than the default branch, is always whatIf.
+        WHATIF: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target' || github.ref != format('refs/heads/{0}', github.event.repository.default_branch)) && 'true' || inputs.what-if }}
         MIN_DESIRED_ASSIGNMENTS: ${{ inputs.min-desired-assignments }}
         PROTECTED_PROFILES: ${{ inputs.protected-profiles || 'none' }}
         INTUNE_LAPTOP_MODELS_FILE: ${{ inputs.laptop-models-file }}

@@ -3,6 +3,10 @@
 name: intune-mgmt
 
 on:
+  pull_request:
+    paths:
+      - 'intune/manifests/**'
+      - 'intune/profiles/**'
   push:
     branches: [main]
     paths:
@@ -53,10 +57,16 @@ jobs:
           platform: windows
           manifests: intune/manifests
 
-  apply:
+  # A whatIf apply for pull requests, other branches and dispatches that ask
+  # for it. It needs Graph read access, but no approval.
+  apply-whatif:
     needs: plan
+    if: >-
+      github.event_name == 'pull_request' ||
+      github.ref != format('refs/heads/{0}', github.event.repository.default_branch) ||
+      (github.event_name == 'workflow_dispatch' && inputs.whatIf)
     runs-on: ubuntu-latest
-    environment: intune
+    environment: intune-plan
     steps:
       - uses: actions/checkout@v4
       - uses: azure/login@v2
@@ -75,4 +85,36 @@ jobs:
           platform: windows
           manifests: intune/manifests
           graph-token: ${{ steps.token.outputs.graph }}
-          what-if: ${{ github.event_name == 'workflow_dispatch' && inputs.whatIf || 'false' }}
+          what-if: 'true'
+
+  # The real apply: default branch only, never a pull request, and behind the
+  # intune-production environment. Give that environment required reviewers
+  # and restrict it to the default branch in the repo settings, and scope the
+  # federated credential that can write to it.
+  apply:
+    needs: plan
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.whatIf))
+    runs-on: ubuntu-latest
+    environment: intune-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - id: token
+        run: |
+          token=$(az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv)
+          echo "::add-mask::$token"
+          echo "graph=$token" >> "$GITHUB_OUTPUT"
+      - uses: windowsadmins/intune-gitops/pipelines/github@v0.1.0
+        with:
+          stage: apply
+          platform: windows
+          manifests: intune/manifests
+          graph-token: ${{ steps.token.outputs.graph }}
+          what-if: 'false'
