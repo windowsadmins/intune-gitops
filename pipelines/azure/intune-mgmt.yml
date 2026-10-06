@@ -31,10 +31,6 @@ parameters:
   - name: environment
     displayName: 'Azure DevOps environment the real apply deploys to; put approvals and checks on it'
     type: string
-  - name: defaultBranch
-    displayName: 'The only branch a real apply may run from'
-    type: string
-    default: refs/heads/main
   - name: whatIf
     displayName: 'Plan only: log every write instead of making it'
     type: boolean
@@ -139,6 +135,13 @@ stages:
   # pull request, and it is building the default branch. Anything else runs
   # the whatIf stage, which logs every write and needs no approval.
   #
+  # These conditions are a convenience, not the security boundary: the branch
+  # author controls the calling YAML and can pass whatIf: false. refs/heads/main
+  # is hardcoded rather than a parameter so a caller cannot at least widen it,
+  # but the boundary is the checks on the write service connection and the
+  # environment (approvals, branch control on refs/heads/main with branch
+  # protection verified, and a required template check). See pipelines/README.md.
+  #
   # The write connection is referenced only inside the gated deployment job.
   # The whatIf stage signs in with the read-only connection, so a pull request
   # or branch build can never mint a token that writes to the tenant. Lint,
@@ -150,7 +153,7 @@ stages:
       and(succeeded(),
           or(eq('${{ lower(parameters.whatIf) }}', 'true'),
              eq(variables['Build.Reason'], 'PullRequest'),
-             ne(variables['Build.SourceBranch'], '${{ parameters.defaultBranch }}')))
+             ne(variables['Build.SourceBranch'], 'refs/heads/main')))
     jobs:
       - job: apply_whatif
         pool:
@@ -174,7 +177,7 @@ stages:
       and(succeeded(),
           eq('${{ lower(parameters.whatIf) }}', 'false'),
           ne(variables['Build.Reason'], 'PullRequest'),
-          eq(variables['Build.SourceBranch'], '${{ parameters.defaultBranch }}'))
+          eq(variables['Build.SourceBranch'], 'refs/heads/main'))
     jobs:
       - deployment: apply
         environment: ${{ parameters.environment }}
