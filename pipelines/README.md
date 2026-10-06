@@ -12,19 +12,51 @@ otherwise.
 
 ## The apply gate
 
-Apply writes to a live tenant, so it is gated the same way on both systems. A
-real (non-whatIf) apply runs only when all of these hold; anything else runs
-apply in whatIf mode, which logs every write and makes none:
+Apply writes to a live tenant. The YAML has conditions that keep a real
+(non-whatIf) apply off pull requests and off any branch but `main`, and they
+run apply in whatIf mode otherwise. **Those conditions are a convenience, not
+the gate.** Whoever pushes a branch controls the calling pipeline's YAML and can
+pass `whatIf: false` or call the stages differently. The boundary has to be on
+resources the branch author cannot edit.
 
-- whatIf is off (it defaults to on);
-- the run is not for a pull request;
-- it is building the default branch;
-- it is a deployment to an environment (Azure DevOps) or a job bound to an
-  environment (GitHub), so approvals and branch checks attach there.
+### Azure Pipelines: required configuration
 
-Configure that environment before the first real run: required reviewers,
-and in Azure DevOps a branch control check limited to the default branch; in
-GitHub, deployment branches limited to the default branch.
+Put **all three** of these checks on **both** the write service connection and
+the environment the apply deploys to (Project settings, then Service
+connections or Environments, then Approvals and checks). Do this before the
+first real run; without them the write identity is open to any branch.
+
+1. **Approvals.** At least one approver who is not the change author.
+2. **Branch control.** Allowed branches `refs/heads/main`, with
+   *Verify branch protection* turned on, so the check fails for a branch
+   without the main branch's policies.
+3. **Required template.** Require that runs extend or include
+   `pipelines/azure/intune-mgmt.yml` from the `windowsadmins/intune-gitops`
+   repository at the release tag you pin (for example `refs/tags/v0.1.1`). A
+   pipeline that skips the template, or points it at another ref, then cannot
+   use the connection.
+
+Also restrict the write service connection's pipeline permissions to the one
+pipeline that runs the template, rather than "grant access to all pipelines".
+
+The template hardcodes `refs/heads/main` as the only branch a real apply runs
+from; a repository whose default branch has another name should fork the
+template rather than loosen it.
+
+### GitHub Actions: required configuration
+
+The boundary is the environment's protection rules and the federated
+credential, not the `if:` in the workflow:
+
+1. On the `intune-production` environment, set **required reviewers** and
+   **deployment branches** limited to `main`.
+2. Give the write app registration exactly one federated credential, with
+   subject `repo:<owner>/<repo>:environment:intune-production`. A job can only
+   present that subject from inside the environment, so only a reviewed run on
+   `main` can sign in as the writer.
+
+The composite action also forces whatIf on a pull request or any ref other than
+the default branch, which is again a convenience on top of those rules.
 
 ## Two identities
 
@@ -40,10 +72,9 @@ managed identity with workload identity federation and no secret:
 Lint, test and plan need no identity at all.
 
 **Azure Pipelines.** Make one service connection per identity. The template
-references `writeServiceConnection` only inside the apply deployment job, so the
-environment's approvals guard it. Put the same approval and branch control
-checks on the write service connection itself, and do not grant other
-pipelines access to it, so a pipeline that skips the template cannot borrow it.
+references `writeServiceConnection` only inside the apply deployment job; the
+checks under "Azure Pipelines: required configuration" on that connection are
+what stop any other pipeline or branch from using it.
 
 **GitHub Actions.** The example grants no `id-token: write` at workflow level.
 Only the two apply jobs get it, and each signs in as a different app
@@ -102,7 +133,6 @@ relative to the calling repo; steps passed in `validationSteps` should set
 | `readServiceConnection` | required | Read-only connection for the whatIf apply (see "Two identities") |
 | `writeServiceConnection` | required | Write connection, referenced only inside the gated apply deployment |
 | `environment` | required | Environment the real apply deploys to; put approvals and checks on it |
-| `defaultBranch` | `refs/heads/main` | The only branch a real apply runs from |
 | `engineRepository` | `intune_gitops` | The alias the caller gave this repo |
 | `whatIf` | `true` | Log every write instead of making it |
 | `validationSteps` | none | Platform checks for the test stage, such as catalog waterfalls or PayloadVersion |
