@@ -114,7 +114,10 @@ def converge(csv_text: str, *, what_if: bool = False, allow_large_shrink: bool =
         log.warning("No directory object for %d serial(s): %s",
                     len(missing), ", ".join(sorted(missing)[:5]))
 
+    # Plan every group before writing any, so the run-wide cap sees the whole run.
     skipped: list[str] = []
+    plan: list[tuple[str, str, set[str], set[str]]] = []
+    watched = 0
     for group_name in sorted(desired):
         gid = client.ensure_group(group_name, f"[{MANAGED_MARKER}] derived from inventory")
         if not gid:
@@ -130,7 +133,16 @@ def converge(csv_text: str, *, what_if: bool = False, allow_large_shrink: bool =
         ):
             skipped.append(group_name)
             to_remove = set()
+        watched += len(have)
+        plan.append((group_name, gid, to_add, to_remove))
 
+    run_ok = guards.run_removal_cap(
+        sum(len(p[3]) for p in plan), watched,
+        allow_large_shrink=allow_large_shrink,
+    )
+    for group_name, gid, to_add, to_remove in plan:
+        if not run_ok:
+            to_remove = set()
         for oid in sorted(to_add):
             client.add_member(gid, oid)
         for oid in sorted(to_remove):
@@ -142,8 +154,7 @@ def converge(csv_text: str, *, what_if: bool = False, allow_large_shrink: bool =
     if skipped:
         log.error("Skipped %d group(s) on the removal cap: %s",
                   len(skipped), ", ".join(skipped))
-        return 1
-    return 0
+    return 0 if run_ok and not skipped else 1
 
 
 def main(argv: list[str] | None = None) -> int:

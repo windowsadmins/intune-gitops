@@ -164,7 +164,10 @@ when its group is a strict descendant of a group the item actually reaches.
 **Membership removals are capped.** The enrollment layer refuses a desired set
 below `MIN_DESIRED_MEMBERSHIPS` and skips any group where one run would remove
 more than `MAX_REMOVAL_PCT` of its members. A removal of `MAX_SMALL_REMOVAL` or
-fewer always passes, so one device leaving a small group is not read as a collapse.
+fewer passes when members remain, so one device leaving a small group is not read
+as a collapse. Emptying a group never counts as small. The run's removals are then
+summed and go through the same cap, so a collapse spread thinly across many groups
+removes nothing. `MAX_SMALL_REMOVAL` is clamped to 10.
 
 **Each platform touches only its own objects.** A Mac and a Windows repo often
 keep a profile under the same name and the same marker. The apply stage reads the
@@ -188,7 +191,7 @@ it, with a date.
 | `MIN_DESIRED_ASSIGNMENTS` | `3` | Floor below which an assignment run is treated as a parse failure |
 | `MIN_DESIRED_MEMBERSHIPS` | `10` | The same, for group membership |
 | `MAX_REMOVAL_PCT` | `10` | Share of a group one run may remove |
-| `MAX_SMALL_REMOVAL` | `5` | Removals at or below this count skip the share check |
+| `MAX_SMALL_REMOVAL` | `5` | Removals at or below this count skip the per-group share check; at most 10 |
 | `INTUNE_MANAGED_MARKER` | `managed-by-gitops` | Marks the objects this pipeline owns |
 | `INTUNE_GROUP_PREFIX` | `Devices` | First component of every group name |
 | `PROTECTED_PROFILES` | `protected-profiles.yaml` | Profiles another pipeline owns |

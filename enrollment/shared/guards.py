@@ -53,6 +53,15 @@ def desired_floor(total_desired: int, *, what: str, env: str, default: int) -> N
         )
 
 
+# MAX_SMALL_REMOVAL is clamped to this, so a mistyped or hostile value cannot turn
+# the small-removal allowance into a way round the cap.
+SMALL_REMOVAL_CEILING = 10
+
+
+def small_removal_limit(env: str = "MAX_SMALL_REMOVAL", default: int = 5) -> int:
+    return max(0, min(_env_int(env, default), SMALL_REMOVAL_CEILING))
+
+
 def removal_cap(
     to_remove: int,
     actual: int,
@@ -64,28 +73,63 @@ def removal_cap(
     small_env: str = "MAX_SMALL_REMOVAL",
     small_default: int = 5,
 ) -> bool:
-    """Whether a removal batch is within the allowed proportion.
+    """Whether one target's removal batch is within the allowed proportion.
 
     Returns True to proceed, False to skip this target. Skipping one suspicious
     target and continuing beats failing the whole run: the other four hundred
     still need converging.
 
-    A removal of MAX_SMALL_REMOVAL or fewer always passes. On a small group, or a
-    run that watches only a few memberships, one device moving room is already a
-    large share of a tiny denominator -- 1 of 1 is 100% -- without being a
-    collapse. A real collapse removes far more than a handful.
+    A removal of MAX_SMALL_REMOVAL or fewer passes when members remain. On a
+    small group one device moving room is already a large share of a tiny
+    denominator without being a collapse. Emptying a group is never small,
+    whatever its size, and run_removal_cap() bounds the small removals a run
+    adds up to.
     """
     if to_remove == 0 or actual == 0:
-        return True
-    if to_remove <= _env_int(small_env, small_default):
         return True
     cap = _env_float(env, default)
     pct = 100.0 * to_remove / actual
     if pct <= cap or allow_large_shrink:
         return True
+    if to_remove <= small_removal_limit(small_env, small_default) and to_remove < actual:
+        return True
     log.error(
         "%s: would remove %d of %d (%.1f%%, cap %.1f%%) -- skipping. "
         "Re-run with allowLargeShrink=true if this is intended.",
         what, to_remove, actual, pct, cap,
+    )
+    return False
+
+
+def run_removal_cap(
+    to_remove: int,
+    actual: int,
+    *,
+    allow_large_shrink: bool = False,
+    env: str = "MAX_REMOVAL_PCT",
+    default: float = 10.0,
+    small_env: str = "MAX_SMALL_REMOVAL",
+    small_default: int = 5,
+) -> bool:
+    """The same cap over every removal one run plans, across all its targets.
+
+    Each small removal passes removal_cap() alone, so a collapse spread thinly
+    -- one device out of each of fifty room groups -- would pass target by
+    target. Summed, it is a large share of what the run watches. Call this with
+    the run's planned removals and the memberships they came from, before
+    writing any of them.
+    """
+    if to_remove == 0 or actual == 0 or allow_large_shrink:
+        return True
+    if to_remove <= small_removal_limit(small_env, small_default):
+        return True
+    cap = _env_float(env, default)
+    pct = 100.0 * to_remove / actual
+    if pct <= cap:
+        return True
+    log.error(
+        "run would remove %d of %d watched memberships (%.1f%%, cap %.1f%%) -- "
+        "removing nothing. Re-run with allowLargeShrink=true if this is intended.",
+        to_remove, actual, pct, cap,
     )
     return False
