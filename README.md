@@ -163,7 +163,17 @@ when its group is a strict descendant of a group the item actually reaches.
 
 **Membership removals are capped.** The enrollment layer refuses a desired set
 below `MIN_DESIRED_MEMBERSHIPS` and skips any group where one run would remove
-more than `MAX_REMOVAL_PCT` of its members.
+more than `MAX_REMOVAL_PCT` of its members. A removal of `MAX_SMALL_REMOVAL` or
+fewer always passes, so one device leaving a small group is not read as a collapse.
+
+**Each platform touches only its own objects.** A Mac and a Windows repo often
+keep a profile under the same name and the same marker. The apply stage reads the
+platform from each object's `@odata.type` or `platforms` and skips the other
+platform's namesake, so the two pipelines never rewrite each other's assignments.
+
+**Graph transients are retried, writes are never duplicated.** A 429 is retried
+on every call, honouring `Retry-After`. A 5xx or dropped connection is retried
+only for reads, PATCH, DELETE and `/assign`; a create POST is not repeated.
 
 Set every floor and cap from your own baseline and record that baseline next to
 it, with a date.
@@ -178,6 +188,7 @@ it, with a date.
 | `MIN_DESIRED_ASSIGNMENTS` | `3` | Floor below which an assignment run is treated as a parse failure |
 | `MIN_DESIRED_MEMBERSHIPS` | `10` | The same, for group membership |
 | `MAX_REMOVAL_PCT` | `10` | Share of a group one run may remove |
+| `MAX_SMALL_REMOVAL` | `5` | Removals at or below this count skip the share check |
 | `INTUNE_MANAGED_MARKER` | `managed-by-gitops` | Marks the objects this pipeline owns |
 | `INTUNE_GROUP_PREFIX` | `Devices` | First component of every group name |
 | `PROTECTED_PROFILES` | `protected-profiles.yaml` | Profiles another pipeline owns |

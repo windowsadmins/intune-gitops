@@ -147,12 +147,14 @@ class FakeGraph:
         *,
         name_field: str = "displayName",
         managed: bool = True,
+        **extra,
     ) -> dict:
         obj = {
             "id": self._id(endpoint),
             name_field: name,
             "description": "managed-by-gitops" if managed else "",
             "assignments": [],
+            **extra,
         }
         self.objects.setdefault(endpoint, []).append(obj)
         return obj

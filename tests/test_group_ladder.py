@@ -118,6 +118,13 @@ class Convergence(unittest.TestCase):
         self.assertEqual(run(ROWS, fake), 1)
         self.assertTrue(strangers <= fake.members_of("Devices-All"))
 
+    def test_small_removal_on_a_tiny_group_is_churn_not_a_collapse(self):
+        """One device leaving a group of one is 100%, and must not be capped."""
+        os.environ["MAX_REMOVAL_PCT"] = "10"
+        self.assertTrue(guards.removal_cap(1, 1, what="tiny"))
+        self.assertTrue(guards.removal_cap(5, 6, what="small"))
+        self.assertFalse(guards.removal_cap(6, 6, what="collapsed"))
+
     def test_plans_offline_without_a_token(self):
         """Someone who has just forked the kit must be able to see the plan
         before handing it any credentials."""
