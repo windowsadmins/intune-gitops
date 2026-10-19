@@ -1,4 +1,4 @@
-"""A small Microsoft Graph client: paging, group lookup with cache, whatIf.
+"""A small Microsoft Graph client: paging, retries, group lookup with cache, whatIf.
 
 Deliberately thin. It exists so the consumers and the Intune stages share one
 place that knows about paging, throttling and dry-run, not to wrap all of Graph.
@@ -27,6 +27,53 @@ GRAPH_BETA = "https://graph.microsoft.com/beta"
 THROTTLE_EVERY = 20
 THROTTLE_SECONDS = 1.0
 
+# Graph answers 429 under load and 502/503/504 when Intune is slow, and either one
+# used to fail a whole run. A 429 means Graph refused the request, so every method
+# retries it. A 5xx or a dropped connection may already have been applied, so it
+# is retried only where a repeat is harmless: reads, PATCH, DELETE and /assign,
+# which replaces the whole assignment set. A create POST is never repeated after
+# a 5xx, so a retry can never make a duplicate group, filter or membership.
+ATTEMPTS = 6
+TRANSIENT = (500, 502, 503, 504)
+MAX_WAIT = 120
+
+
+def _repeatable(method: str, url: str) -> bool:
+    return method != "POST" or url.split("?")[0].rstrip("/").endswith("/assign")
+
+
+def _send(method: str, url: str, *, sleep=time.sleep, **kwargs):
+    """One Graph call, retried on throttling and transient failures, honouring
+    Retry-After. Returns the last response; raises only the last connection
+    error, or the first one for a request that must not be repeated."""
+    requests = _requests()
+    repeatable = _repeatable(method, url)
+    delay = 2
+    for attempt in range(ATTEMPTS):
+        last = attempt == ATTEMPTS - 1
+        try:
+            resp = requests.request(method, url, **kwargs)
+        except (requests.ConnectionError, requests.Timeout) as err:
+            if last or not repeatable:
+                raise
+            log.warning("Graph %s %s: %s; retrying in %ds",
+                        method, url, err.__class__.__name__, delay)
+            sleep(delay)
+            delay = min(delay * 2, 60)
+            continue
+        retry = resp.status_code == 429 or (repeatable and resp.status_code in TRANSIENT)
+        if not retry or last:
+            return resp
+        try:
+            wait = int(resp.headers.get("Retry-After") or delay)
+        except ValueError:
+            wait = delay
+        wait = min(max(wait, 1), MAX_WAIT)
+        log.warning("Graph %s %s: %d; retrying in %ds", method, url, resp.status_code, wait)
+        sleep(wait)
+        delay = min(delay * 2, 60)
+    return resp
+
 
 class GraphClient:
     def __init__(self, token: str | None = None, what_if: bool | None = None):
@@ -50,7 +97,7 @@ class GraphClient:
     def get(self, url: str):
         if not url.startswith("http"):
             url = GRAPH_V1 + url
-        return _requests().get(url, headers=self._headers(), timeout=60)
+        return _send("GET", url, headers=self._headers(), timeout=60)
 
     def paged(self, url: str) -> list[dict]:
         """Follow @odata.nextLink to the end and return every value."""
@@ -71,7 +118,7 @@ class GraphClient:
             log.info("[WHATIF] POST %s %s", url, json if json else "")
             return None
         self._throttle()
-        return _requests().post(url, headers=self._headers(), json=json, timeout=60)
+        return _send("POST", url, headers=self._headers(), json=json, timeout=60)
 
     def patch(self, url: str, json: dict | None = None):
         """PATCH, unless this is a whatIf run."""
@@ -81,7 +128,7 @@ class GraphClient:
             log.info("[WHATIF] PATCH %s %s", url, json if json else "")
             return None
         self._throttle()
-        return _requests().patch(url, headers=self._headers(), json=json, timeout=60)
+        return _send("PATCH", url, headers=self._headers(), json=json, timeout=60)
 
     def delete(self, url: str):
         if not url.startswith("http"):
@@ -90,7 +137,7 @@ class GraphClient:
             log.info("[WHATIF] DELETE %s", url)
             return None
         self._throttle()
-        return _requests().delete(url, headers=self._headers(), timeout=60)
+        return _send("DELETE", url, headers=self._headers(), timeout=60)
 
     def _throttle(self) -> None:
         self._writes += 1

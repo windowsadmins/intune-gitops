@@ -61,14 +61,23 @@ def removal_cap(
     allow_large_shrink: bool = False,
     env: str = "MAX_REMOVAL_PCT",
     default: float = 10.0,
+    small_env: str = "MAX_SMALL_REMOVAL",
+    small_default: int = 5,
 ) -> bool:
     """Whether a removal batch is within the allowed proportion.
 
     Returns True to proceed, False to skip this target. Skipping one suspicious
     target and continuing beats failing the whole run: the other four hundred
     still need converging.
+
+    A removal of MAX_SMALL_REMOVAL or fewer always passes. On a small group, or a
+    run that watches only a few memberships, one device moving room is already a
+    large share of a tiny denominator -- 1 of 1 is 100% -- without being a
+    collapse. A real collapse removes far more than a handful.
     """
     if to_remove == 0 or actual == 0:
+        return True
+    if to_remove <= _env_int(small_env, small_default):
         return True
     cap = _env_float(env, default)
     pct = 100.0 * to_remove / actual

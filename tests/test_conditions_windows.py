@@ -50,6 +50,21 @@ class Supported(unittest.TestCase):
         self.assertEqual(T.filter_platform, "windows10AndLater")
 
 
+class FilterNames(unittest.TestCase):
+    LONG = " OR ".join(f'hostname CONTAINS "{n}"' for n in
+                       ("alpha", "bravo", "charlie", "delta", "echo", "foxtrot"))
+
+    def test_long_names_fit_intunes_128_character_limit(self):
+        a, _ = T.translate(self.LONG)
+        b, _ = T.translate(self.LONG + ' OR hostname CONTAINS "golf"')
+        self.assertLessEqual(len(a), 128)
+        self.assertLessEqual(len(b), 128)
+        self.assertNotEqual(a, b)
+
+    def test_short_names_are_left_whole(self):
+        self.assertEqual(T.translate('hostname CONTAINS "x"')[0], 'Cimian: hostname CONTAINS "x"')
+
+
 class NotPushdown(unittest.TestCase):
     def test_not_never_emits_unary_not(self):
         r = rule('NOT hostname CONTAINS "KIOSK"')

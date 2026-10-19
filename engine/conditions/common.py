@@ -34,8 +34,10 @@ import hashlib
 import re
 from typing import Callable
 
-# Intune caps a filter displayName; long conditions keep a stable hash suffix.
-MAX_DISPLAY = 250
+# Intune rejects an assignmentFilter displayName over 128 characters, and a
+# rejected create drops every filtered assignment that needed it. Longer names are
+# cut to fit with a stable hash suffix; the full condition is in the description.
+MAX_DISPLAY = 128
 
 
 class CondParseError(Exception):
@@ -223,8 +225,9 @@ def normalize_condition(text) -> str:
 def display_name(prefix: str, normalized: str) -> str:
     display = f"{prefix}{normalized}"
     if len(display) > MAX_DISPLAY:
-        digest = hashlib.sha1(normalized.encode()).hexdigest()[:8]
-        display = display[:240] + f"... [{digest}]"
+        # The hash keeps two long conditions that share a prefix on separate filters.
+        suffix = f"... [{hashlib.sha1(normalized.encode()).hexdigest()[:8]}]"
+        display = display[: MAX_DISPLAY - len(suffix)] + suffix
     return display
 
 

@@ -132,21 +132,27 @@ def tenant(platform: str) -> FakeGraph:
     for group in ("Devices-Shared", "Devices-Shared-Curriculum-Design",
                   "Devices-Assigned-Staff-IT"):
         fake.groups[group] = f"gid-{group}"
+    win_config = {"@odata.type": "#microsoft.graph.windows10CustomConfiguration"}
+    mac_config = {"@odata.type": "#microsoft.graph.macOSCustomConfiguration"}
     if platform == "windows":
         for name in ("DisableCopilot", "SharedWindowsUpdateRing", "EnableRemoteDesktop"):
-            fake.add_object("deviceConfigurations", name)
-        fake.add_object("configurationPolicies", "ModernOSPrefs", name_field="name")
-        fake.add_object("configurationPolicies", "DellCommandPrefs", name_field="name")
+            fake.add_object("deviceConfigurations", name, **win_config)
+        fake.add_object("configurationPolicies", "ModernOSPrefs", name_field="name",
+                        platforms="windows10")
+        fake.add_object("configurationPolicies", "DellCommandPrefs", name_field="name",
+                        platforms="windows10")
         fake.add_object("deviceHealthScripts", "RepairWinget")
         fake.add_object("deviceHealthScripts", "StaffCleanup")
-        fake.add_object("mobileApps", "Windows Terminal")
+        fake.add_object("mobileApps", "Windows Terminal",
+                        **{"@odata.type": "#microsoft.graph.winGetApp"})
     else:
         for name in ("SharedSoftwareUpdate", "SharedLoginWindow", "AdminTerminalPrefs",
                      "LaptopPowerPrefs", "DesktopEnergyPrefs"):
-            fake.add_object("deviceConfigurations", name)
+            fake.add_object("deviceConfigurations", name, **mac_config)
         fake.add_object("deviceShellScripts", "RepairMunki")
         fake.add_object("deviceShellScripts", "SequoiaCleanup")
-        fake.add_object("mobileApps", "Remote Desktop")
+        fake.add_object("mobileApps", "Remote Desktop",
+                        **{"@odata.type": "#microsoft.graph.macOSVppApp"})
     return fake
 
 
@@ -213,6 +219,41 @@ class Applying(unittest.TestCase):
         (entry,) = assign_body(fake, "deviceShellScripts", "SequoiaCleanup")
         self.assertIn("deviceAndAppManagementAssignmentFilterId", entry["target"])
         self.assertEqual({f["platform"] for f in fake.filters}, {"macOS"})
+
+    def test_other_platforms_namesake_is_never_touched(self):
+        """A Mac repo keeps profiles under the same names and marker. The Windows
+        run must assign its own object and leave the macOS one alone, whichever
+        the tenant lists first."""
+        fake = tenant("windows")
+        mac = fake.add_object("deviceConfigurations", "EnableRemoteDesktop",
+                              **{"@odata.type": "#microsoft.graph.macOSCustomConfiguration"})
+        fake.objects["deviceConfigurations"].insert(0, fake.objects["deviceConfigurations"].pop())
+        mac_policy = fake.add_object("configurationPolicies", "ModernOSPrefs",
+                                     name_field="name", platforms="macOS")
+        fake.objects["configurationPolicies"].insert(0, fake.objects["configurationPolicies"].pop())
+        self.assertEqual(self.run_apply(WIN_TREE, "windows", fake), 0)
+        touched = {url for url, _ in fake.assigns()}
+        self.assertFalse(any(f"/{mac['id']}/" in u for u in touched))
+        self.assertFalse(any(f"/{mac_policy['id']}/" in u for u in touched))
+        win = next(o for o in fake.objects["deviceConfigurations"]
+                   if o["displayName"] == "EnableRemoteDesktop" and o is not mac)
+        self.assertTrue(any(f"/{win['id']}/assign" in u for u in touched))
+
+    def test_platform_is_read_from_type_or_platforms(self):
+        on = apply_assignments.on_platform
+        self.assertTrue(on({"@odata.type": "#microsoft.graph.windows10CustomConfiguration"}, "windows"))
+        self.assertFalse(on({"@odata.type": "#microsoft.graph.macOSCustomConfiguration"}, "windows"))
+        self.assertTrue(on({"platforms": "macOS"}, "macos"))
+        self.assertFalse(on({"platforms": "windows10"}, "macos"))
+        self.assertFalse(on({}, "windows"))
+
+    def test_profile_endpoints_read_where_filters_are_visible(self):
+        """v1.0 assignments omit the filter fields, so a scope read there and
+        written back loses every assignment filter. Read and write through beta."""
+        kinds = (apply_assignments.PROFILE_KINDS + apply_assignments.APP_KINDS
+                 + [k for ks in apply_assignments.SCRIPT_KINDS.values() for k in ks])
+        for kind in kinds:
+            self.assertIn("/beta/", kind.url(), kind.label)
 
     def test_second_run_changes_nothing(self):
         fake = tenant("windows")

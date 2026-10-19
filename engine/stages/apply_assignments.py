@@ -119,6 +119,33 @@ def is_ours(obj: dict) -> bool:
     return MANAGED_MARKER in (obj.get("description") or "")
 
 
+# How each platform's objects identify themselves. deviceConfigurations and
+# mobileApps carry it in @odata.type (#microsoft.graph.windows10CustomConfiguration,
+# #microsoft.graph.macOSCustomConfiguration, #microsoft.graph.winGetApp, ...);
+# configurationPolicies carry it in `platforms` (windows10, macOS).
+TYPE_PREFIXES = {
+    "windows": ("#microsoft.graph.windows", "#microsoft.graph.win32", "#microsoft.graph.winget",
+                "#microsoft.graph.officesuiteapp"),
+    "macos": ("#microsoft.graph.macos",),
+}
+POLICY_PLATFORMS = {"windows": "windows", "macos": "macos"}
+
+
+def on_platform(obj: dict, platform: str) -> bool:
+    """Whether an Intune object belongs to this platform.
+
+    A Mac and a Windows repo often keep a profile under the same logical name
+    (ReportMatePrefs, BootstrapPrefs) with the same managed marker. Matched on
+    name alone, each pipeline found the other's object first and rewrote its
+    assignments, so the two took turns unassigning each other. Every object is
+    held to its own platform here; one that names no platform is left alone.
+    """
+    if "platforms" in obj:
+        return POLICY_PLATFORMS[platform] in (obj.get("platforms") or "").lower()
+    odata = (obj.get("@odata.type") or "").lower()
+    return odata.startswith(TYPE_PREFIXES[platform])
+
+
 def load_protected() -> set[str]:
     """Profiles another pipeline owns, which this one must not touch.
 
@@ -222,7 +249,9 @@ def apply(
         for kind in kinds:
             for obj in client.paged(kind.url("?$expand=assignments")):
                 name = obj.get(kind.name_field)
-                if name and is_ours(obj):
+                # Script endpoints are per platform already; profiles and apps share one.
+                scoped = key == "managed_scripts" or on_platform(obj, translator.name)
+                if name and is_ours(obj) and scoped:
                     existing.setdefault(name, (kind, obj))
 
         for name, targets in sorted(wanted.items()):

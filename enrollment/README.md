@@ -47,7 +47,7 @@ look at the ladder it would build before giving it credentials.
 | Path | What it is |
 |---|---|
 | `shared/hierarchy.py` | The naming convention. Inventory columns to group ladder to manifest path, and back. Nothing else builds a group name by hand. |
-| `shared/graph.py` | Thin Graph client: paging, group cache, throttle, whatIf. `requests` is imported lazily so the tests need no dependencies. |
+| `shared/graph.py` | Thin Graph client: paging, retry on 429 and transient 5xx, group cache, throttle, whatIf. `requests` is imported lazily so the tests need no dependencies. |
 | `shared/guards.py` | Desired-set floor and removal cap. These only ever constrain removal. |
 | `shared/csvdiff.py` | Change detection against a cached copy, with `FULL_RUN` and `BYPASS_CACHE`. |
 | `consumers/intune.py` | The group ladder. Imports nothing cloud-specific. |
@@ -83,6 +83,7 @@ estate are decorations, not guards.
 |---|---|---|
 | `MIN_DESIRED_MEMBERSHIPS` | `10` | Floor below which a run is treated as a parse failure |
 | `MAX_REMOVAL_PCT` | `10` | Percentage of a group that one run may remove |
+| `MAX_SMALL_REMOVAL` | `5` | Removals at or below this count skip the percentage check |
 | `WHATIF` | unset | `true` to log every write instead of making it |
 | `FULL_RUN` | unset | `true` to process every row regardless of the cache |
 | `INTUNE_GROUP_PREFIX` | `Devices` | First component of every group name |
