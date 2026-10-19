@@ -118,12 +118,47 @@ class Convergence(unittest.TestCase):
         self.assertEqual(run(ROWS, fake), 1)
         self.assertTrue(strangers <= fake.members_of("Devices-All"))
 
-    def test_small_removal_on_a_tiny_group_is_churn_not_a_collapse(self):
-        """One device leaving a group of one is 100%, and must not be capped."""
+    def test_small_removal_that_leaves_members_is_churn(self):
         os.environ["MAX_REMOVAL_PCT"] = "10"
-        self.assertTrue(guards.removal_cap(1, 1, what="tiny"))
+        self.assertTrue(guards.removal_cap(1, 2, what="small"))
         self.assertTrue(guards.removal_cap(5, 6, what="small"))
-        self.assertFalse(guards.removal_cap(6, 6, what="collapsed"))
+
+    def test_emptying_a_group_is_never_small(self):
+        os.environ["MAX_REMOVAL_PCT"] = "10"
+        self.assertFalse(guards.removal_cap(1, 1, what="tiny"))
+        self.assertFalse(guards.removal_cap(3, 3, what="tiny"))
+
+    def test_small_removal_limit_is_clamped(self):
+        os.environ["MAX_REMOVAL_PCT"] = "10"
+        os.environ["MAX_SMALL_REMOVAL"] = "100000"
+        try:
+            self.assertEqual(guards.small_removal_limit(), guards.SMALL_REMOVAL_CEILING)
+            self.assertFalse(guards.removal_cap(50, 60, what="clamped"))
+            os.environ["MAX_SMALL_REMOVAL"] = "-3"
+            self.assertEqual(guards.small_removal_limit(), 0)
+        finally:
+            del os.environ["MAX_SMALL_REMOVAL"]
+
+    def test_small_removals_spread_across_a_run_are_capped_together(self):
+        """One device out of each of many groups passes group by group, but the
+        run's total goes through the same cap and nothing is removed."""
+        os.environ["MAX_REMOVAL_PCT"] = "10"
+        self.assertTrue(guards.run_removal_cap(5, 6))
+        self.assertFalse(guards.run_removal_cap(20, 40))
+        self.assertTrue(guards.run_removal_cap(20, 40, allow_large_shrink=True))
+
+        fake = FakeGraph(devices=OBJECTS)
+        run(ROWS, fake)
+        strays = {}
+        for group_name in sorted(fake.groups)[:8]:
+            stray = f"obj-stray-{group_name}"
+            fake.preload(group_name, fake.members_of(group_name) | {stray})
+            strays[group_name] = stray
+        removed_before = len(fake.removed)
+        self.assertEqual(run(ROWS, fake), 1)
+        self.assertEqual(len(fake.removed), removed_before)
+        for group_name, stray in strays.items():
+            self.assertIn(stray, fake.members_of(group_name))
 
     def test_plans_offline_without_a_token(self):
         """Someone who has just forked the kit must be able to see the plan

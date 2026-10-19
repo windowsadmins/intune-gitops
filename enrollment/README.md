@@ -83,7 +83,7 @@ estate are decorations, not guards.
 |---|---|---|
 | `MIN_DESIRED_MEMBERSHIPS` | `10` | Floor below which a run is treated as a parse failure |
 | `MAX_REMOVAL_PCT` | `10` | Percentage of a group that one run may remove |
-| `MAX_SMALL_REMOVAL` | `5` | Removals at or below this count skip the percentage check |
+| `MAX_SMALL_REMOVAL` | `5` | Removals at or below this count skip the per-group percentage check when members remain; at most 10 |
 | `WHATIF` | unset | `true` to log every write instead of making it |
 | `FULL_RUN` | unset | `true` to process every row regardless of the cache |
 | `INTUNE_GROUP_PREFIX` | `Devices` | First component of every group name |
