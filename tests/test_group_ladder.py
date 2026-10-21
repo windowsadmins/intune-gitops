@@ -118,15 +118,28 @@ class Convergence(unittest.TestCase):
         self.assertEqual(run(ROWS, fake), 1)
         self.assertTrue(strangers <= fake.members_of("Devices-All"))
 
-    def test_small_removal_that_leaves_members_is_churn(self):
+    def test_small_removal_is_churn(self):
         os.environ["MAX_REMOVAL_PCT"] = "10"
         self.assertTrue(guards.removal_cap(1, 2, what="small"))
         self.assertTrue(guards.removal_cap(5, 6, what="small"))
 
-    def test_emptying_a_group_is_never_small(self):
+    def test_small_leaf_group_emptying_does_not_abort_the_run(self):
+        """The last occupant leaving a room group is churn. The group empties and
+        the rest of the run carries on."""
         os.environ["MAX_REMOVAL_PCT"] = "10"
-        self.assertFalse(guards.removal_cap(1, 1, what="tiny"))
-        self.assertFalse(guards.removal_cap(3, 3, what="tiny"))
+        self.assertTrue(guards.removal_cap(1, 1, what="tiny"))
+        self.assertTrue(guards.removal_cap(3, 3, what="tiny"))
+
+        room = "Devices-Shared-Curriculum-Design-C2204"
+        fake = FakeGraph(devices={k: v for k, v in OBJECTS.items() if k != "SAMPLE006"})
+        fake.preload(room, {"obj-last-occupant"})
+        self.assertEqual(run(ROWS, fake), 0)
+        self.assertEqual(fake.members_of(room), set())
+        self.assertIn(OBJECTS["SAMPLE001"], fake.members_of("Devices-All"))
+
+    def test_emptying_a_group_above_the_small_limit_is_capped(self):
+        os.environ["MAX_REMOVAL_PCT"] = "10"
+        self.assertFalse(guards.removal_cap(6, 6, what="large"))
 
     def test_small_removal_limit_is_clamped(self):
         os.environ["MAX_REMOVAL_PCT"] = "10"
