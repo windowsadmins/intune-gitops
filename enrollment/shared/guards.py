@@ -79,11 +79,12 @@ def removal_cap(
     target and continuing beats failing the whole run: the other four hundred
     still need converging.
 
-    A removal of MAX_SMALL_REMOVAL or fewer passes when members remain. On a
-    small group one device moving room is already a large share of a tiny
-    denominator without being a collapse. Emptying a group is never small,
-    whatever its size, and run_removal_cap() bounds the small removals a run
-    adds up to.
+    A removal of MAX_SMALL_REMOVAL or fewer always passes, even when it empties
+    the group. On a small group one device moving room is already a large share
+    of a tiny denominator, and a room group losing its last occupant is routine
+    churn, not a collapse. Treating it as one stops the whole reconcile on a
+    group of two. The systemic case -- a blank column or a failed join emptying
+    every group at once -- is what run_removal_cap() catches.
     """
     if to_remove == 0 or actual == 0:
         return True
@@ -91,7 +92,7 @@ def removal_cap(
     pct = 100.0 * to_remove / actual
     if pct <= cap or allow_large_shrink:
         return True
-    if to_remove <= small_removal_limit(small_env, small_default) and to_remove < actual:
+    if to_remove <= small_removal_limit(small_env, small_default):
         return True
     log.error(
         "%s: would remove %d of %d (%.1f%%, cap %.1f%%) -- skipping. "

@@ -164,9 +164,9 @@ when its group is a strict descendant of a group the item actually reaches.
 **Membership removals are capped.** The enrollment layer refuses a desired set
 below `MIN_DESIRED_MEMBERSHIPS` and skips any group where one run would remove
 more than `MAX_REMOVAL_PCT` of its members. A removal of `MAX_SMALL_REMOVAL` or
-fewer passes when members remain, so one device leaving a small group is not read
-as a collapse. Emptying a group never counts as small. The run's removals are then
-summed and go through the same cap, so a collapse spread thinly across many groups
+fewer always passes, even when it empties the group, so the last device leaving a
+room group is churn and does not stop the run. The run's removals are then summed
+and go through the same cap, so a collapse spread thinly across many groups
 removes nothing. `MAX_SMALL_REMOVAL` is clamped to 10.
 
 **Each platform touches only its own objects.** A Mac and a Windows repo often
